@@ -1,14 +1,17 @@
-### TODO: PREENCHA SUAS INFORMAÇÕES AQUI ###
-# Nome #01 (quem entregou o código):    [NOME COMPLETO #01] 
-# RA #01 (quem entregou o código):      [RA #01]
-# Nome #02:                             [NOME COMPLETO #02]
-# RA #02:                               [RA #02]
-
-
 import random
 
 CHUTE_DE_NUMERO = "NUMBER"
 CHUTE_DE_REGRA = "RULE"
+
+fase = 0
+t = None #grava o primeiro numero que da ok
+#para busca binaria
+low = 1
+high = 100000
+
+next_offset = 1
+last_rule_count = 0
+tried_rules = set()
 
 def player(number_guesses, rule_guesses):
     global fase, t, low, high, next_offset, last_rule_count, tried_rules
