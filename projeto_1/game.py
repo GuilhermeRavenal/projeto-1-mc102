@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Arquivo responsável pela interface gráfica e inicialização do jogo.
 
 Este script é a implementação principal da interface gráfica do jogo, utilizando a biblioteca Pygame. 
