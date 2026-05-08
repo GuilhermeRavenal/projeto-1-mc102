@@ -1,439 +1,205 @@
 ### TODO: PREENCHA SUAS INFORMAÇÕES AQUI ###
-# Nome #01 (quem entregou o código):    [NOME COMPLETO #01]
+# Nome #01 (quem entregou o código):    [NOME COMPLETO #01] 
 # RA #01 (quem entregou o código):      [RA #01]
 # Nome #02:                             [NOME COMPLETO #02]
 # RA #02:                               [RA #02]
 
+import random
 
 CHUTE_DE_NUMERO = "NUMBER"
 CHUTE_DE_REGRA = "RULE"
 
-# -------------------------------------------------
-# Estado global da partida
-# -------------------------------------------------
-
-fase = "buscar"          # fase atual do algoritmo
-low = 1                  # limite inferior da busca
-high = 100000            # limite superior da busca
-anchor = None            # primeiro número que deu True
-
-# Para intervalo
-left_true = None
-right_true = None
-
-# Para potência perfeita
-pot_exp = 1
-pot_results = {}
-pot_found = None
-
-# Para mod
-mod_scan_dist = 1
-mod_scan_side = 1
-mod_other_true = None
-mod_k = None
-
-# Para não repetir regras já chutadas
+# variaveis globais de estado
+fase = 0
+t = None # primeiro numero que deu True
+low = 1
+high = 100000
+next_offset = 1
+last_rule_count = 0
 tried_rules = set()
 
-# Para processar só os novos itens do histórico
-processed_number_count = 0
-processed_rule_count = 0
-
-
-def _reset():
-    """Reinicia tudo quando uma nova partida começa."""
-    global fase, low, high, anchor
-    global left_true, right_true
-    global pot_exp, pot_results, pot_found
-    global mod_scan_dist, mod_scan_side, mod_other_true, mod_k
-    global tried_rules
-    global processed_number_count, processed_rule_count
-
-    fase = "buscar"
+def _reiniciar():
+    global fase, t, low, high, next_offset, last_rule_count, tried_rules
+    fase = 0
+    t = None
     low = 1
     high = 100000
-    anchor = None
-
-    left_true = None
-    right_true = None
-
-    pot_exp = 1
-    pot_results = {}
-    pot_found = None
-
-    mod_scan_dist = 1
-    mod_scan_side = 1
-    mod_other_true = None
-    mod_k = None
-
+    next_offset = 1
+    last_rule_count = 0
     tried_rules = set()
 
-    processed_number_count = 0
-    processed_rule_count = 0
+def _pegar_inicio_fim(number_guesses):
+    # percorre a lista toda pra achar o low e high mais recentes
+    # (ideia da camila de varrer a lista)
+    INICIO = 1
+    FIM = 100000
+    POS = -1
+    for i in number_guesses:
+        if number_guesses[POS][1] == 'maior':
+            INICIO = number_guesses[POS][0] + 1
+            break
+        POS -= 1
+    POS = -1
+    for i in number_guesses:
+        if number_guesses[POS][1] == 'menor':
+            FIM = number_guesses[POS][0] - 1
+            break
+        POS -= 1
+    return INICIO, FIM
 
-
-def _mid(a, b):
-    """Ponto médio inteiro."""
-    return (a + b) // 2
-
-
-def _gcd(a, b):
-    """Máximo divisor comum."""
-    while b != 0:
-        a, b = b, a % b
-    return a
-
-
-def _used_numbers(number_guesses):
-    """Conjunto com todos os números já chutados."""
-    return {g[0] for g in number_guesses}
-
-
-def _normalize_rule(item):
-    """
-    A entrada de rule_guesses pode vir como:
-      - [tipo, p1, p2]
-      - ou algo aninhado no primeiro elemento
-    Esta função padroniza para uma tupla simples.
-    """
-    if item and isinstance(item[0], (list, tuple)):
-        return tuple(item[0])
-    return tuple(item)
-
-
-def _process_rules(rule_guesses):
-    """Registra as regras que já foram chutadas."""
-    global processed_rule_count, tried_rules
-
-    while processed_rule_count < len(rule_guesses):
-        tried_rules.add(_normalize_rule(rule_guesses[processed_rule_count]))
-        processed_rule_count += 1
-
-
-def _infer_pot():
-    """
-    Tenta descobrir qual p (1 a 10) encaixa no padrão
-    dos testes 2^1, 2^2, ..., 2^10.
-
-    Se n é potência perfeita de ordem p, então 2^e também é
-    potência perfeita exatamente quando e é múltiplo de p.
-    """
-    for p in range(1, 11):
-        ok = True
-        for e in range(1, 11):
-            esperado = (e % p == 0)
-            if pot_results.get(e) != esperado:
-                ok = False
+def _checar_potencia(trues):
+    # ideia da camila: testa se a raiz da um numero "redondo"
+    for p in range(2, 11):
+        todos_ok = True
+        for num in trues:
+            raiz = num ** (1 / p)
+            raiz_str = str(raiz)
+            casas = raiz_str.split('.')[1]
+            # se so tem 1 casa decimal assume que e inteiro
+            if len(casas) > 1:
+                todos_ok = False
                 break
-        if ok:
+        if todos_ok == True:
             return p
     return None
 
-
-def _process_number_guess(chute, direcao, ok):
-    """
-    Atualiza o estado interno usando o resultado do último chute de número.
-    """
-    global fase, low, high, anchor
-    global left_true, right_true
-    global pot_exp, pot_results, pot_found
-    global mod_scan_dist, mod_scan_side, mod_other_true, mod_k
-
-    # 1) Ainda procurando um número verdadeiro
-    if fase == "buscar":
-        if ok:
-            anchor = chute
-            fase = "check_left"
-        else:
-            if direcao == "maior":
-                low = max(low, chute + 1)
-            else:
-                high = min(high, chute - 1)
-        return
-
-    # 2) Testando o vizinho da esquerda
-    if fase == "check_left":
-        if ok:
-            left_true = chute
-            fase = "expand_left"
-        else:
-            fase = "check_right"
-        return
-
-    # 3) Testando o vizinho da direita
-    if fase == "check_right":
-        if ok:
-            right_true = chute
-            fase = "expand_right"
-        else:
-            fase = "test_pot"
-            pot_exp = 1
-            pot_results = {}
-        return
-
-    # 4) Expandindo a faixa contínua para a esquerda
-    if fase == "expand_left":
-        if ok:
-            left_true = chute
-        else:
-            fase = "expand_right"
-        return
-
-    # 5) Expandindo a faixa contínua para a direita
-    if fase == "expand_right":
-        if ok:
-            right_true = chute
-        else:
-            fase = "emit_int"
-        return
-
-    # 6) Testando potências perfeitas com 2^1, 2^2, ..., 2^10
-    if fase == "test_pot":
-        pot_results[pot_exp] = ok
-        pot_exp += 1
-
-        if pot_exp > 10:
-            p = _infer_pot()
-            if p is not None:
-                pot_found = p
-                fase = "emit_pot"
-            else:
-                fase = "collect_mod"
-                mod_scan_dist = 1
-                mod_scan_side = 1
-                mod_other_true = None
-                mod_k = None
-        return
-
-    # 7) Procurando outro número verdadeiro para deduzir mod
-    if fase == "collect_mod":
-        if ok and chute != anchor and mod_other_true is None:
-            mod_other_true = chute
-            mod_k = abs(chute - anchor)
-            fase = "emit_mod"
-        return
-
-
-def _next_search_guess(used):
-    """
-    Próximo chute na busca binária.
-    Tenta o meio do intervalo e, se já foi usado, procura perto.
-    """
-    global low, high
-
-    if low > high:
-        low, high = 1, 100000
-
-    meio = _mid(low, high)
-
-    if meio not in used:
-        return meio
-
-    for delta in range(1, 200):
-        a = meio - delta
-        b = meio + delta
-
-        if low <= a <= high and a not in used:
-            return a
-        if low <= b <= high and b not in used:
-            return b
-
-    return meio
-
-
-def _next_mod_guess(used):
-    """
-    Vai alternando:
-      anchor+1, anchor-1, anchor+2, anchor-2, ...
-    """
-    global mod_scan_dist, mod_scan_side, anchor
-
-    if anchor is None:
+def _checar_intervalo(trues):
+    # so tenta se tiver pelo menos 4 Trues consecutivos
+    if len(trues) < 4:
         return None
-
-    while mod_scan_dist <= 100:
-        cand = anchor + (mod_scan_side * mod_scan_dist)
-
-        if mod_scan_side == 1:
-            mod_scan_side = -1
-        else:
-            mod_scan_side = 1
-            mod_scan_dist += 1
-
-        if 1 <= cand <= 100000 and cand not in used:
-            return cand
-
+    ordenados = sorted(trues)
+    for i in range(len(ordenados) - 3):
+        if (ordenados[i+1] - ordenados[i] == 1 and
+            ordenados[i+2] - ordenados[i+1] == 1 and
+            ordenados[i+3] - ordenados[i+2] == 1):
+            return (ordenados[i], ordenados[i+3])
     return None
 
-
-def _rule_to_emit():
-    """Monta a regra final quando o algoritmo acha que descobriu."""
-    if fase == "emit_int" and left_true is not None and right_true is not None:
-        return ["int", left_true, right_true]
-
-    if fase == "emit_pot" and pot_found is not None:
-        return ["pot", pot_found, 0]
-
-    if fase == "emit_mod" and mod_k is not None and anchor is not None:
-        return ["mod", mod_k, anchor % mod_k]
-
+def _checar_mod(trues):
+    # verifica se as diferencas consecutivas sao iguais
+    if len(trues) < 3:
+        return None
+    ordenados = sorted(trues)
+    k1 = ordenados[1] - ordenados[0]
+    k2 = ordenados[2] - ordenados[1]
+    if k1 == k2 and k1 > 1:
+        return (k1, ordenados[0] % k1)
     return None
-
 
 def player(number_guesses, rule_guesses):
-    """
-    Função principal do jogo.
-    Recebe:
-      - number_guesses: histórico dos chutes de número
-      - rule_guesses: histórico dos chutes de regra
-    Retorna:
-      - [NUMBER, n] ou [RULE, [tipo, p1, p2]]
-    """
-    global fase, pot_exp, pot_results, pot_found
-    global mod_scan_dist, mod_scan_side, mod_other_true, mod_k
-    global processed_number_count, processed_rule_count
+    global fase, t, low, high, next_offset, last_rule_count, tried_rules
 
-    # Nova partida
-    if not number_guesses and not rule_guesses:
-        if processed_number_count != 0 or processed_rule_count != 0 or fase != "buscar" or anchor is not None:
-            _reset()
-        return [CHUTE_DE_NUMERO, 50_000]
+    # nova partida
+    if len(number_guesses) == 0 and len(rule_guesses) == 0:
+        _reiniciar()
+        return [CHUTE_DE_NUMERO, 50000]
 
-    # Registra regras já tentadas
-    _process_rules(rule_guesses)
+    # atualiza tried_rules se entrou regra nova
+    if len(rule_guesses) > last_rule_count:
+        tried_rules.add(tuple(rule_guesses[-1]))
+        last_rule_count = len(rule_guesses)
 
-    # Processa somente os novos resultados de número
-    while processed_number_count < len(number_guesses):
-        chute, direcao, ok = number_guesses[processed_number_count]
-        _process_number_guess(chute, direcao, ok)
-        processed_number_count += 1
+        # regra foi rejeitada, avanca fase
+        if fase == 2:
+            fase = 3
+        elif fase == 3:
+            fase = 4
+        elif fase == 4:
+            fase = 0
 
-    used = _used_numbers(number_guesses)
+    # lista de todos os Trues ate agora
+    trues = [n for (n, _, ok) in number_guesses if ok]
 
-    # Decide a próxima ação
-    while True:
-        if fase == "buscar":
-            return [CHUTE_DE_NUMERO, _next_search_guess(used)]
+    # -------------------------------------------------------
+    # Fase 0 -- achar um True via busca binaria
+    if fase == 0:
+        if not number_guesses:
+            return [CHUTE_DE_NUMERO, 50000]
 
-        if fase == "check_left":
-            if anchor is None:
-                fase = "buscar"
-                continue
+        ultimo = number_guesses[-1]
 
-            cand = anchor - 1
-            if cand >= 1 and cand not in used:
+        if ultimo[2] == True:
+            t = ultimo[0]
+            fase = 1
+            next_offset = 1
+        else:
+            # atualiza intervalo e chuta o meio
+            # usa _pegar_inicio_fim que varre a lista toda
+            INICIO, FIM = _pegar_inicio_fim(number_guesses)
+            low = INICIO
+            high = FIM
+            MEIO = ((FIM - INICIO) // 2) + INICIO
+            return [CHUTE_DE_NUMERO, MEIO]
+
+    # -------------------------------------------------------
+    # Fase 1 - testar vizinhos do t pra entender a regra
+    if fase == 1:
+        usados = {n for (n, _, _) in number_guesses}
+
+        # testa 4 vizinhos proximos
+        for delta in (1, -1, 2, -2):
+            cand = t + delta
+            if 1 <= cand <= 100000 and cand not in usados:
                 return [CHUTE_DE_NUMERO, cand]
 
-            fase = "check_right"
-            continue
+        # testou os 4 vizinhos, vai tentar deduzir a regra
+        fase = 2
 
-        if fase == "check_right":
-            if anchor is None:
-                fase = "buscar"
-                continue
+    # -------------------------------------------------------
+    # Fase 2 - tenta regra de intervalo
+    if fase == 2:
+        resultado = _checar_intervalo(trues)
+        if resultado != None:
+            esq, dir = resultado
+            chute_regra = ("int", esq, dir)
+            if chute_regra not in tried_rules:
+                return [CHUTE_DE_REGRA, ["int", esq, dir]]
+        # nao achou intervalo obvio, tenta potencia
+        fase = 3
 
-            cand = anchor + 1
-            if cand <= 100000 and cand not in used:
-                return [CHUTE_DE_NUMERO, cand]
+    # -------------------------------------------------------
+    # Fase 3 - tenta regra de potencia
+    if fase == 3:
+        if len(trues) >= 2:
+            p = _checar_potencia(trues)
+            if p != None:
+                chute_regra = ("pot", p, 0)
+                if chute_regra not in tried_rules:
+                    return [CHUTE_DE_REGRA, ["pot", p, 0]]
+        fase = 4
 
-            fase = "test_pot"
-            pot_exp = 1
-            pot_results = {}
-            continue
+    # -------------------------------------------------------
+    # Fase 4 - tenta regra de mod
+    if fase == 4:
+        resultado = _checar_mod(trues)
+        if resultado != None:
+            k, r = resultado
+            chute_regra = ("mod", k, r)
+            if chute_regra not in tried_rules:
+                return [CHUTE_DE_REGRA, ["mod", k, r]]
 
-        if fase == "expand_left":
-            if left_true is None:
-                fase = "expand_right"
-                continue
-
-            cand = left_true - 1
-            if cand >= 1 and cand not in used:
-                return [CHUTE_DE_NUMERO, cand]
-
-            fase = "expand_right"
-            continue
-
-        if fase == "expand_right":
-            if right_true is None:
-                fase = "emit_int"
-                continue
-
-            cand = right_true + 1
-            if cand <= 100000 and cand not in used:
-                return [CHUTE_DE_NUMERO, cand]
-
-            fase = "emit_int"
-            continue
-
-        if fase == "emit_int":
-            regra = _rule_to_emit()
-            if regra is not None and tuple(regra) not in tried_rules:
-                tried_rules.add(tuple(regra))
-                # Se errar, a próxima fase útil é testar potência.
-                fase = "test_pot"
-                pot_exp = 1
-                pot_results = {}
-                return [CHUTE_DE_REGRA, regra]
-
-            fase = "test_pot"
-            continue
-
-        if fase == "test_pot":
-            while pot_exp <= 10:
-                cand = 2 ** pot_exp
-                if cand not in used:
+        # nao achou nenhuma regra, precisa de mais numeros
+        # coleta mais Trues explorando a partir do t
+        if t != None:
+            usados = {n for (n, _, _) in number_guesses}
+            while next_offset <= 500:
+                cand = t + next_offset
+                next_offset = next_offset + 1
+                if 1 <= cand <= 100000 and cand not in usados:
                     return [CHUTE_DE_NUMERO, cand]
-                pot_exp += 1
 
-            p = _infer_pot()
-            if p is not None:
-                pot_found = p
-                fase = "emit_pot"
-            else:
-                fase = "collect_mod"
-                mod_scan_dist = 1
-                mod_scan_side = 1
-                mod_other_true = None
-                mod_k = None
-            continue
+        # se chegou aqui, volta ao inicio e tenta achar outro True
+        fase = 0
+        low = 1
+        high = 100000
 
-        if fase == "emit_pot":
-            regra = _rule_to_emit()
-            if regra is not None and tuple(regra) not in tried_rules:
-                tried_rules.add(tuple(regra))
-                # Se errar, parte para procurar outro True e deduzir mod.
-                fase = "collect_mod"
-                mod_scan_dist = 1
-                mod_scan_side = 1
-                mod_other_true = None
-                mod_k = None
-                return [CHUTE_DE_REGRA, regra]
+    # embicada de segurança: busca binaria simples no intervalo atual
+    guess = (low + high) // 2
+    used = {n for (n, _, _) in number_guesses}
 
-            fase = "collect_mod"
-            continue
+    tentativas = 0
+    while guess in used and tentativas < 100:
+        guess = guess + 1 if guess < 100000 else guess - 1
+        tentativas = tentativas + 1
 
-        if fase == "collect_mod":
-            if anchor is None:
-                fase = "buscar"
-                continue
-
-            cand = _next_mod_guess(used)
-            if cand is not None:
-                return [CHUTE_DE_NUMERO, cand]
-
-            fase = "buscar"
-            continue
-
-        if fase == "emit_mod":
-            regra = _rule_to_emit()
-            if regra is not None and tuple(regra) not in tried_rules:
-                tried_rules.add(tuple(regra))
-                fase = "buscar"
-                return [CHUTE_DE_REGRA, regra]
-
-            fase = "buscar"
-            continue
-
-        # Segurança geral
-        fase = "buscar"
-        return [CHUTE_DE_NUMERO, _next_search_guess(used)]
+    return [CHUTE_DE_NUMERO, guess]
