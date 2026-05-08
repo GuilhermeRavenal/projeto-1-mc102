@@ -43,7 +43,7 @@ def player(number_guesses, rule_guesses):
     usados = {n for (n, _, _) in number_guesses}
 
     # --------------------------------------------------------
-    # Fase 0 -- busca binaria pra achar qualquer True
+    # Fase 0 - busca binaria pra achar qualquer True
     if fase == 0:
         if not number_guesses:
             return [CHUTE_DE_NUMERO, 50000]
